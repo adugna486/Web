@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebRTC የዌብ ካሜራ ማስተላለፊያ</title>
+<style>
+  body { font-family: sans-serif; max-width: 720px; margin: 0 auto; padding: 12px; background: #f5f5f5; color: #222; }
+  h1 { font-size: 1.3rem; }
+  section { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  video { width: 100%; background: #000; border-radius: 8px; max-height: 300px; }
+  textarea { width: 100%; height: 90px; box-sizing: border-box; font-size: .8rem; margin: 6px 0; }
+  button { padding: 10px 14px; margin: 4px 4px 4px 0; border: 0; border-radius: 6px; background: #0b7a3b; color: #fff; font-size: .95rem; }
+  button:disabled { background: #999; }
+  #status { font-size: .9rem; color: #555; }
+</style>
+</head>
+<body>
+<h1>WebRTC የዌብ ካሜራ ማስተላለፊያ</h1>
+<p id="status">ሁኔታ፦ ዝግጁ</p>
+
+<!-- ላኪ (Sender) -->
+<section>
+  <h2>1. ላኪ (ካሜራ ያለው መሣሪያ)</h2>
+  <video id="localVideo" autoplay playsinline muted></video>
+  <button id="startCam">ካሜራ አብራ</button>
+  <button id="createOffer" disabled>Offer ፍጠር</button>
+  <label>የእርስዎ Offer (ለተቀባዩ ይላኩ)፦</label>
+  <textarea id="offerOut" readonly></textarea>
+  <label>ከተቀባዩ የመጣውን Answer እዚህ ይለጥፉ፦</label>
+  <textarea id="answerIn"></textarea>
+  <button id="applyAnswer" disabled>Answer ተግብር</button>
+</section>
+
+<!-- ተቀባይ (Receiver) -->
+<section>
+  <h2>2. ተቀባይ (ምስሉን የሚመለከት መሣሪያ)</h2>
+  <video id="remoteVideo" autoplay playsinline></video>
+  <label>ከላኪው የመጣውን Offer እዚህ ይለጥፉ፦</label>
+  <textarea id="offerIn"></textarea>
+  <button id="createAnswer">Answer ፍጠር</button>
+  <label>የእርስዎ Answer (ለላኪው ይላኩ)፦</label>
+  <textarea id="answerOut" readonly></textarea>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const status = t => $('status').textContent = 'ሁኔታ፦ ' + t;
+const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+let localStream = null;
+let senderPC = null;
+let receiverPC = null;
+
+// ICE candidates ተሰብስበው እስኪጨርሱ መጠበቅ (ያለ signaling server ለመስራት)
+function waitForIce(pc) {
+  return new Promise(resolve => {
+    if (pc.iceGatheringState === 'complete') return resolve();
+    pc.addEventListener('icegatheringstatechange', () => {
+      if (pc.iceGatheringState === 'complete') resolve();
+    });
+    setTimeout(resolve, 5000); // ጊዜ ገደብ
+  });
+}
+
+// ---------- ላኪ ----------
+$('startCam').onclick = async () => {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    $('localVideo').srcObject = localStream;
+    $('createOffer').disabled = false;
+    status('ካሜራ በርቷል');
+  } catch (e) {
+    status('ካሜራ መክፈት አልተቻለም፦ ' + e.message);
+  }
+};
+
+$('createOffer').onclick = async () => {
+  senderPC = new RTCPeerConnection(config);
+  localStream.getTracks().forEach(t => senderPC.addTrack(t, localStream));
+  senderPC.onconnectionstatechange = () => status('ላኪ ግንኙነት፦ ' + senderPC.connectionState);
+  await senderPC.setLocalDescription(await senderPC.createOffer());
+  await waitForIce(senderPC);
+  $('offerOut').value = JSON.stringify(senderPC.localDescription);
+  $('applyAnswer').disabled = false;
+  status('Offer ተፈጥሯል — ለተቀባዩ ይላኩ');
+};
+
+$('applyAnswer').onclick = async () => {
+  try {
+    await senderPC.setRemoteDescription(JSON.parse($('answerIn').value));
+    status('Answer ተተግብሯል — በመገናኘት ላይ...');
+  } catch (e) {
+    status('የተሳሳተ Answer፦ ' + e.message);
+  }
+};
+
+// ---------- ተቀባይ ----------
+$('createAnswer').onclick = async () => {
+  try {
+    receiverPC = new RTCPeerConnection(config);
+    receiverPC.ontrack = e => { $('remoteVideo').srcObject = e.streams[0]; };
+    receiverPC.onconnectionstatechange = () => status('ተቀባይ ግንኙነት፦ ' + receiverPC.connectionState);
+    await receiverPC.setRemoteDescription(JSON.parse($('offerIn').value));
+    await receiverPC.setLocalDescription(await receiverPC.createAnswer());
+    await waitForIce(receiverPC);
+    $('answerOut').value = JSON.stringify(receiverPC.localDescription);
+    status('Answer ተፈጥሯል — ለላኪው ይላኩ');
+  } catch (e) {
+    status('የተሳሳተ Offer፦ ' + e.message);
+  }
+};
+</script>
+</body>
+</html>
